@@ -74,9 +74,11 @@ import {
   registerWithEmail, 
   setupRecaptcha, 
   sendPhoneOtp, 
-  auth 
+  auth,
+  onAuthStateChanged
 } from './lib/firebase';
-import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
+// import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth'; // Removed
+type FirebaseUser = any; 
 
 // --- Components ---
 
