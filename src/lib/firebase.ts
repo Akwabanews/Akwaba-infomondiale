@@ -1,24 +1,23 @@
 import { initializeApp } from 'firebase/app';
 import { 
-  getFirestore, 
-  initializeFirestore,
-  collection, 
-  getDocs, 
-  getDoc, 
-  doc, 
-  setDoc, 
-  updateDoc, 
-  deleteDoc, 
-  query, 
-  orderBy,
-  increment,
-  arrayUnion,
-  arrayRemove,
-  where,
-  getDocFromServer,
-  onSnapshot,
-  collectionGroup
-} from 'firebase/firestore';
+  getDatabase, 
+  ref, 
+  set, 
+  get, 
+  child, 
+  push, 
+  update, 
+  remove, 
+  onValue, 
+  off,
+  query as dbQuery, 
+  orderByChild, 
+  limitToLast,
+  equalTo,
+  increment as dbIncrement,
+  onChildAdded,
+  DataSnapshot
+} from 'firebase/database';
 import { 
   getAuth, 
   GoogleAuthProvider, 
@@ -38,15 +37,7 @@ import firebaseConfig from '../../firebase-applet-config.json';
 import { Article, Event, SiteSettings, Comment, Subscriber, MediaAsset, Poll, AppNotification, SupportMessage } from '../types';
 
 const app = initializeApp(firebaseConfig);
-
-// Enhanced Firestore initialization to handle restrictive network environments
-export const db = initializeFirestore(app, {
-  experimentalForceLongPolling: true,
-}, firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== '(default)' 
-  ? firebaseConfig.firestoreDatabaseId 
-  : undefined
-);
-
+export const rtdb = getDatabase(app);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({
@@ -55,42 +46,26 @@ googleProvider.setCustomParameters({
 
 const isPlaceholder = !firebaseConfig.projectId || firebaseConfig.projectId.includes('remixed-');
 
-// Connection Test
-async function testConnection() {
-  if (isPlaceholder) {
-    console.log("Firebase: Utilisation du mode local (Configuration non initialisée)");
-    return;
-  }
-  try {
-    const testDoc = doc(db, 'test_connection', 'ping');
-    await getDoc(testDoc); 
-    console.log(`Firebase: Initialized for project ${firebaseConfig.projectId}`);
-  } catch (error: any) {
-    // Silently handle expected readiness errors
-    if (error.code === 'permission-denied') {
-      console.log("Firebase: Connected (Permission check passed)");
-    } else {
-      console.warn("Firebase Check:", error.code, error.message);
-    }
-  }
-}
-testConnection();
+// --- Realtime Database Services ---
 
-// --- Firestore Services ---
-
-export const FirestoreService = {
+export const DatabaseService = {
   // Articles
   async getArticles(): Promise<Article[]> {
     if (isPlaceholder) {
       const saved = localStorage.getItem('akwaba_articles');
       return saved ? JSON.parse(saved) : [];
     }
+    const dbRef = ref(rtdb);
     try {
-      const q = query(collection(db, 'articles'), orderBy('date', 'desc'));
-      const snapshot = await getDocs(q);
-      return snapshot.docs.map(doc => ({ ...doc.data() } as Article));
+      const snapshot = await get(child(dbRef, 'articles'));
+      if (snapshot.exists()) {
+        const data = snapshot.val();
+        const articles = Object.values(data) as Article[];
+        return articles.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      }
+      return [];
     } catch (e) {
-      return handleFirestoreError(e, 'list', 'articles');
+      return handleDatabaseError(e, 'list', 'articles');
     }
   },
 
@@ -104,9 +79,9 @@ export const FirestoreService = {
       return;
     }
     try {
-      await setDoc(doc(db, 'articles', article.id), article);
+      await set(ref(rtdb, `articles/${article.id}`), article);
     } catch (e) {
-      handleFirestoreError(e, 'create', `articles/${article.id}`);
+      handleDatabaseError(e, 'create', `articles/${article.id}`);
     }
   },
 
@@ -116,7 +91,7 @@ export const FirestoreService = {
       localStorage.setItem('akwaba_articles', JSON.stringify(articles.filter((a: any) => a.id !== id)));
       return;
     }
-    await deleteDoc(doc(db, 'articles', id));
+    await remove(ref(rtdb, `articles/${id}`));
   },
 
   // Events
@@ -125,9 +100,17 @@ export const FirestoreService = {
       const saved = localStorage.getItem('akwaba_events');
       return saved ? JSON.parse(saved) : [];
     }
-    const q = query(collection(db, 'events'), orderBy('date', 'desc'));
-    const snapshot = await getDocs(q);
-    return snapshot.docs.map(doc => ({ ...doc.data() } as Event));
+    try {
+      const snapshot = await get(ref(rtdb, 'events'));
+      if (snapshot.exists()) {
+        const data = snapshot.val();
+        const events = Object.values(data) as Event[];
+        return events.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      }
+      return [];
+    } catch (e) {
+      return [];
+    }
   },
 
   async saveEvent(event: Event): Promise<void> {
@@ -140,15 +123,15 @@ export const FirestoreService = {
       return;
     }
     try {
-      await setDoc(doc(db, 'events', event.id), event);
+      await set(ref(rtdb, `events/${event.id}`), event);
     } catch (e) {
-      handleFirestoreError(e, 'create', `events/${event.id}`);
+      handleDatabaseError(e, 'create', `events/${event.id}`);
     }
   },
 
   async deleteEvent(id: string): Promise<void> {
     if (isPlaceholder) return;
-    await deleteDoc(doc(db, 'events', id));
+    await remove(ref(rtdb, `events/${id}`));
   },
 
   // Settings
@@ -157,8 +140,8 @@ export const FirestoreService = {
       const saved = localStorage.getItem('akwaba_site_settings');
       return saved ? JSON.parse(saved) : null;
     }
-    const d = await getDoc(doc(db, 'settings', 'global'));
-    return d.exists() ? d.data() as SiteSettings : null;
+    const snapshot = await get(ref(rtdb, 'settings/global'));
+    return snapshot.exists() ? snapshot.val() as SiteSettings : null;
   },
 
   async saveSettings(settings: SiteSettings): Promise<void> {
@@ -167,452 +150,505 @@ export const FirestoreService = {
       return;
     }
     try {
-      await setDoc(doc(db, 'settings', 'global'), settings);
+      await set(ref(rtdb, 'settings/global'), settings);
     } catch (e) {
-      handleFirestoreError(e, 'write', 'settings/global');
+      handleDatabaseError(e, 'write', 'settings/global');
     }
   },
 
   // Comments management
   async getAllComments(): Promise<Comment[]> {
     if (isPlaceholder) return [];
-    const q = query(collection(db, 'comments'), orderBy('date', 'desc'));
-    const snapshot = await getDocs(q);
-    return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Comment));
+    try {
+      const snapshot = await get(ref(rtdb, 'comments'));
+      if (snapshot.exists()) {
+        const data = snapshot.val();
+        const comments = Object.values(data) as Comment[];
+        return comments.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      }
+      return [];
+    } catch (e) {
+      return [];
+    }
   },
 
   async saveComment(comment: Comment): Promise<void> {
     if (isPlaceholder) return;
-    await setDoc(doc(db, 'comments', comment.id), comment);
+    await set(ref(rtdb, `comments/${comment.id}`), comment);
   },
 
   async deleteComment(id: string): Promise<void> {
     if (isPlaceholder) return;
-    await deleteDoc(doc(db, 'comments', id));
+    await remove(ref(rtdb, `comments/${id}`));
   },
 
   async blockUser(userId: string): Promise<void> {
     if (isPlaceholder) return;
-    await setDoc(doc(db, 'blocked_users', userId), {
+    await set(ref(rtdb, `blocked_users/${userId}`), {
       blockedAt: new Date().toISOString()
     });
   },
 
   async isUserBlocked(userId: string): Promise<boolean> {
     if (isPlaceholder) return false;
-    const docRef = doc(db, 'blocked_users', userId);
-    const docSnap = await getDoc(docRef);
-    return docSnap.exists();
+    const snapshot = await get(ref(rtdb, `blocked_users/${userId}`));
+    return snapshot.exists();
   },
 
   async reportComment(commentId: string, userId: string): Promise<void> {
     if (isPlaceholder) return;
-    const ref = doc(db, 'comments', commentId);
-    await updateDoc(ref, {
-      isReported: true,
-      reportedBy: arrayUnion(userId)
-    });
+    const updates: any = {};
+    updates[`comments/${commentId}/isReported`] = true;
+    // Realtime Database doesn't have native arrayUnion, so we manage it
+    const snapshot = await get(ref(rtdb, `comments/${commentId}/reportedBy`));
+    const current = snapshot.val() || [];
+    if (!current.includes(userId)) {
+      updates[`comments/${commentId}/reportedBy`] = [...current, userId];
+    }
+    await update(ref(rtdb), updates);
   },
 
   async likeComment(commentId: string, userId: string, isLiked: boolean): Promise<void> {
     if (isPlaceholder) return;
-    const ref = doc(db, 'comments', commentId);
-    await updateDoc(ref, {
-      likes: increment(isLiked ? 1 : -1),
-      likedBy: isLiked ? arrayUnion(userId) : arrayRemove(userId)
-    });
+    const refPath = `comments/${commentId}`;
+    const snapshot = await get(ref(rtdb, `${refPath}/likedBy`));
+    const currentLikes = snapshot.val() || [];
+    let updatedLikes = [...currentLikes];
+
+    if (isLiked && !currentLikes.includes(userId)) {
+      updatedLikes.push(userId);
+    } else if (!isLiked) {
+      updatedLikes = currentLikes.filter((id: string) => id !== userId);
+    }
+
+    const updates: any = {};
+    updates[`${refPath}/likes`] = updatedLikes.length;
+    updates[`${refPath}/likedBy`] = updatedLikes;
+    await update(ref(rtdb), updates);
   },
 
   // Article Likes
   async likeArticle(articleId: string, userId: string, isLiked: boolean): Promise<void> {
     if (isPlaceholder) return;
-    const ref = doc(db, 'articles', articleId);
-    await updateDoc(ref, {
-      likes: increment(isLiked ? 1 : -1)
-    });
-    // Also track in user profile
-    const userRef = doc(db, 'users', userId);
-    await setDoc(userRef, {
-      likedArticles: isLiked ? arrayUnion(articleId) : arrayRemove(articleId)
-    }, { merge: true });
+    
+    // Increment article likes
+    const articleRef = ref(rtdb, `articles/${articleId}/likes`);
+    await set(articleRef, dbIncrement(isLiked ? 1 : -1));
+
+    // Update user profile liked articles
+    const userLikesRef = ref(rtdb, `users/${userId}/likedArticles`);
+    const snapshot = await get(userLikesRef);
+    let likedArticles = snapshot.val() || [];
+    if (isLiked) {
+      if (!likedArticles.includes(articleId)) likedArticles.push(articleId);
+    } else {
+      likedArticles = likedArticles.filter((id: string) => id !== articleId);
+    }
+    await set(userLikesRef, likedArticles);
   },
 
   async bookmarkArticle(articleId: string, userId: string, isBookmarked: boolean): Promise<void> {
     if (isPlaceholder) return;
-    const userRef = doc(db, 'users', userId);
-    await setDoc(userRef, {
-      bookmarkedArticles: isBookmarked ? arrayUnion(articleId) : arrayRemove(articleId)
-    }, { merge: true });
+    const userRef = ref(rtdb, `users/${userId}/bookmarkedArticles`);
+    const snapshot = await get(userRef);
+    let bookmarked = snapshot.val() || [];
+    if (isBookmarked) {
+      if (!bookmarked.includes(articleId)) bookmarked.push(articleId);
+    } else {
+      bookmarked = bookmarked.filter((id: string) => id !== articleId);
+    }
+    await set(userRef, bookmarked);
   },
 
   async followAuthor(authorName: string, userId: string, isFollowing: boolean): Promise<void> {
     if (isPlaceholder) return;
-    const userRef = doc(db, 'users', userId);
-    await setDoc(userRef, {
-      followedAuthors: isFollowing ? arrayUnion(authorName) : arrayRemove(authorName)
-    }, { merge: true });
+    const userRef = ref(rtdb, `users/${userId}/followedAuthors`);
+    const snapshot = await get(userRef);
+    let followed = snapshot.val() || [];
+    if (isFollowing) {
+      if (!followed.includes(authorName)) followed.push(authorName);
+    } else {
+      followed = followed.filter((name: string) => name !== authorName);
+    }
+    await set(userRef, followed);
   },
 
   async followCategory(category: string, userId: string, isFollowing: boolean): Promise<void> {
     if (isPlaceholder) return;
-    const userRef = doc(db, 'users', userId);
-    await setDoc(userRef, {
-      followedCategories: isFollowing ? arrayUnion(category) : arrayRemove(category)
-    }, { merge: true });
+    const userRef = ref(rtdb, `users/${userId}/followedCategories`);
+    const snapshot = await get(userRef);
+    let followed = snapshot.val() || [];
+    if (isFollowing) {
+      if (!followed.includes(category)) followed.push(category);
+    } else {
+      followed = followed.filter((cat: string) => cat !== category);
+    }
+    await set(userRef, followed);
   },
 
   // User Profile
   async getUserProfile(userId: string): Promise<any> {
     if (isPlaceholder) return null;
     try {
-      const d = await getDoc(doc(db, 'users', userId));
-      return d.exists() ? d.data() : null;
+      const snapshot = await get(ref(rtdb, `users/${userId}`));
+      return snapshot.exists() ? snapshot.val() : null;
     } catch (e) {
-      return handleFirestoreError(e, 'get', `users/${userId}`);
+      return handleDatabaseError(e, 'get', `users/${userId}`);
     }
   },
 
   async updateUserProfile(userId: string, data: any): Promise<void> {
     if (isPlaceholder) return;
     try {
-      await setDoc(doc(db, 'users', userId), data, { merge: true });
+      await update(ref(rtdb, `users/${userId}`), data);
     } catch (e) {
-      handleFirestoreError(e, 'update', `users/${userId}`);
+      handleDatabaseError(e, 'update', `users/${userId}`);
     }
   },
 
   // Classifieds (Petites Annonces)
   async getClassifieds(): Promise<any[]> {
     if (isPlaceholder) return [];
-    const q = query(collection(db, 'classifieds'), orderBy('date', 'desc'));
-    const snapshot = await getDocs(q);
-    return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+    try {
+      const snapshot = await get(ref(rtdb, 'classifieds'));
+      if (snapshot.exists()) {
+        const data = snapshot.val();
+        return Object.values(data).sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      }
+      return [];
+    } catch (e) {
+      return [];
+    }
   },
 
   async saveClassified(classified: any): Promise<void> {
     if (isPlaceholder) return;
-    await setDoc(doc(db, 'classifieds', classified.id), classified);
+    await set(ref(rtdb, `classifieds/${classified.id}`), classified);
   },
 
   async deleteClassified(id: string): Promise<void> {
     if (isPlaceholder) return;
-    await deleteDoc(doc(db, 'classifieds', id));
+    await remove(ref(rtdb, `classifieds/${id}`));
   },
 
   // Live Blogs
   async getLiveBlogs(): Promise<any[]> {
     if (isPlaceholder) return [];
-    const q = query(collection(db, 'live_blogs'), orderBy('createdAt', 'desc'));
-    const snapshot = await getDocs(q);
-    return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+    try {
+      const snapshot = await get(ref(rtdb, 'live_blogs'));
+      if (snapshot.exists()) {
+        const data = snapshot.val();
+        return Object.values(data).sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      }
+      return [];
+    } catch (e) {
+      return [];
+    }
   },
 
-  async saveLiveUpdate(blogId: string, update: any): Promise<void> {
+  async saveLiveUpdate(blogId: string, updateData: any): Promise<void> {
     if (isPlaceholder) return;
-    const ref = doc(db, 'live_blogs', blogId);
-    await updateDoc(ref, {
-      updates: arrayUnion(update)
-    });
+    const updatesRef = ref(rtdb, `live_blogs/${blogId}/updates`);
+    const snapshot = await get(updatesRef);
+    const current = snapshot.val() || [];
+    await set(updatesRef, [...current, updateData]);
   },
 
   // Polls
   async getActivePoll(): Promise<Poll | null> {
     if (isPlaceholder) return null;
-    const q = query(collection(db, 'polls'), where('active', '==', true));
-    const snapshot = await getDocs(q);
-    return snapshot.empty ? null : snapshot.docs[0].data() as Poll;
+    try {
+      const snapshot = await get(ref(rtdb, 'polls'));
+      if (snapshot.exists()) {
+        const polls = Object.values(snapshot.val()) as Poll[];
+        return polls.find(p => p.active) || null;
+      }
+      return null;
+    } catch (e) {
+      return null;
+    }
   },
 
   async submitVote(pollId: string, optionId: string, userId: string): Promise<void> {
     if (isPlaceholder) return;
-    const pollRef = doc(db, 'polls', pollId);
-    const pollSnap = await getDoc(pollRef);
-    if (!pollSnap.exists()) return;
+    const pollRef = ref(rtdb, `polls/${pollId}`);
+    const snapshot = await get(pollRef);
+    if (!snapshot.exists()) return;
 
-    const poll = pollSnap.data() as Poll;
+    const poll = snapshot.val() as Poll;
     const newOptions = poll.options.map(opt => 
       opt.id === optionId ? { ...opt, votes: opt.votes + 1 } : opt
     );
 
-    await updateDoc(pollRef, { options: newOptions });
+    await update(pollRef, { options: newOptions });
     
     // Mark user as voted
-    const userRef = doc(db, 'users', userId);
-    await setDoc(userRef, {
-      votedPolls: arrayUnion(pollId)
-    }, { merge: true });
+    const userVotedRef = ref(rtdb, `users/${userId}/votedPolls`);
+    const userVsnap = await get(userVotedRef);
+    const voted = userVsnap.val() || [];
+    if (!voted.includes(pollId)) {
+      await set(userVotedRef, [...voted, pollId]);
+    }
   },
 
   // Newsletter
   async subscribe(email: string): Promise<void> {
-    if (isPlaceholder) {
-      console.log("Newsletter: Simulation d'inscription locale pour", email);
-      return;
-    }
+    if (isPlaceholder) return;
     const id = Date.now().toString();
     const sub: Subscriber = { id, email, date: new Date().toISOString() };
-    await setDoc(doc(db, 'subscribers', id), sub);
+    await set(ref(rtdb, `subscribers/${id}`), sub);
   },
 
   async getSubscribers(): Promise<Subscriber[]> {
     if (isPlaceholder) return [];
-    const q = query(collection(db, 'subscribers'), orderBy('date', 'desc'));
-    const snapshot = await getDocs(q);
-    return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Subscriber));
+    try {
+      const snapshot = await get(ref(rtdb, 'subscribers'));
+      if (snapshot.exists()) {
+        return Object.values(snapshot.val()).sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime()) as Subscriber[];
+      }
+      return [];
+    } catch (e) {
+      return [];
+    }
   },
 
   async deleteSubscriber(id: string): Promise<void> {
     if (isPlaceholder) return;
-    await deleteDoc(doc(db, 'subscribers', id));
+    await remove(ref(rtdb, `subscribers/${id}`));
   },
 
-  // Media Library (Automatic tracking)
+  // Media Library
   async trackMedia(url: string, type: 'image' | 'video'): Promise<void> {
     if (isPlaceholder) return;
-    const id = btoa(url).substring(0, 20); // Simple ID from URL
+    const id = btoa(url).substring(0, 20).replace(/[/+=]/g, '');
     const asset: MediaAsset = { id, url, type, date: new Date().toISOString() };
-    await setDoc(doc(db, 'media', id), asset);
+    await set(ref(rtdb, `media/${id}`), asset);
   },
 
   async getMediaLibrary(): Promise<MediaAsset[]> {
     if (isPlaceholder) return [];
-    const q = query(collection(db, 'media'), orderBy('date', 'desc'));
-    const snapshot = await getDocs(q);
-    return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as MediaAsset));
+    try {
+      const snapshot = await get(ref(rtdb, 'media'));
+      if (snapshot.exists()) {
+        return Object.values(snapshot.val()).sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime()) as MediaAsset[];
+      }
+      return [];
+    } catch (e) {
+      return [];
+    }
   },
 
   async deleteMediaAsset(id: string): Promise<void> {
     if (isPlaceholder) return;
-    await deleteDoc(doc(db, 'media', id));
+    await remove(ref(rtdb, `media/${id}`));
   },
 
   // View Counter
   async incrementView(collectionName: 'articles' | 'events', id: string): Promise<void> {
     if (isPlaceholder) return;
-    const ref = doc(db, collectionName, id);
-    const d = await getDoc(ref);
-    if (d.exists()) {
-      await updateDoc(ref, { views: (d.data().views || 0) + 1 });
-    }
+    const viewRef = ref(rtdb, `${collectionName}/${id}/views`);
+    await set(viewRef, dbIncrement(1));
   },
 
   // Notifications
   async getNotifications(userId: string): Promise<AppNotification[]> {
     if (isPlaceholder) return [];
     try {
-      const q = query(
-        collection(db, 'notifications'), 
-        where('userId', 'in', [userId, 'global']),
-        orderBy('date', 'desc')
-      );
-      const snapshot = await getDocs(q);
-      return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as AppNotification));
+      const snapshot = await get(ref(rtdb, 'notifications'));
+      if (snapshot.exists()) {
+        const notifs = Object.values(snapshot.val()) as AppNotification[];
+        return notifs
+          .filter(n => n.userId === userId || n.userId === 'global')
+          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      }
+      return [];
     } catch (e) {
-      return handleFirestoreError(e, 'list', 'notifications');
+      return handleDatabaseError(e, 'list', 'notifications');
     }
   },
 
   async markNotificationAsRead(id: string): Promise<void> {
     if (isPlaceholder) return;
-    try {
-      await updateDoc(doc(db, 'notifications', id), { read: true });
-    } catch (e) {
-      handleFirestoreError(e, 'update', `notifications/${id}`);
-    }
+    await update(ref(rtdb, `notifications/${id}`), { read: true });
   },
 
   async sendNotification(notif: AppNotification): Promise<void> {
     if (isPlaceholder) return;
-    try {
-      await setDoc(doc(db, 'notifications', notif.id), notif);
-    } catch (e) {
-      handleFirestoreError(e, 'create', `notifications/${notif.id}`);
-    }
+    await set(ref(rtdb, `notifications/${notif.id}`), notif);
   },
 
   subscribeToNotifications(userId: string, callback: (notifs: AppNotification[]) => void) {
     if (isPlaceholder) return () => {};
-    const q = query(
-      collection(db, 'notifications'), 
-      where('userId', 'in', [userId, 'global']),
-      orderBy('date', 'desc')
-    );
-    return onSnapshot(q, (snapshot) => {
-      const notifs = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as AppNotification));
-      callback(notifs);
+    const notifRef = ref(rtdb, 'notifications');
+    const listener = onValue(notifRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.val();
+        const notifs = (Object.values(data) as AppNotification[])
+          .filter(n => n.userId === userId || n.userId === 'global')
+          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        callback(notifs);
+      } else {
+        callback([]);
+      }
     });
+    return () => off(notifRef, 'value', listener);
   },
 
   async awardPoints(userId: string, points: number, badge?: string): Promise<void> {
     if (isPlaceholder) return;
-    try {
-      const userRef = doc(db, 'users', userId);
-      const updates: any = { points: increment(points) };
-      if (badge) updates.badges = arrayUnion(badge);
-      await updateDoc(userRef, updates);
-    } catch (e) {
-      handleFirestoreError(e, 'update', `users/${userId}`);
+    const userRef = ref(rtdb, `users/${userId}`);
+    const snapshot = await get(userRef);
+    if (!snapshot.exists()) return;
+
+    const updates: any = {};
+    updates[`users/${userId}/points`] = (snapshot.val().points || 0) + points;
+    if (badge) {
+      const currentBadges = snapshot.val().badges || [];
+      if (!currentBadges.includes(badge)) {
+        updates[`users/${userId}/badges`] = [...currentBadges, badge];
+      }
     }
+    await update(ref(rtdb), updates);
   },
 
   async incrementArticleViews(articleId: string): Promise<void> {
     if (isPlaceholder) return;
-    try {
-      await updateDoc(doc(db, 'articles', articleId), { views: increment(1) });
-    } catch (e) {
-      handleFirestoreError(e, 'update', `articles/${articleId}`);
-    }
+    await set(ref(rtdb, `articles/${articleId}/views`), dbIncrement(1));
   },
 
   async sendChatMessage(message: any): Promise<void> {
     if (isPlaceholder) return;
-    try {
-      await setDoc(doc(db, `articles/${message.articleId}/chat`, message.id), message);
-    } catch (e) {
-      handleFirestoreError(e, 'create', `articles/${message.articleId}/chat/${message.id}`);
-    }
+    await set(ref(rtdb, `article_chats/${message.articleId}/${message.id}`), message);
   },
 
   subscribeToChat(articleId: string, callback: (messages: any[]) => void) {
     if (isPlaceholder) return () => {};
-    const q = query(
-      collection(db, `articles/${articleId}/chat`),
-      orderBy('date', 'asc')
-    );
-    return onSnapshot(q, (snapshot) => {
-      const messages = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
-      callback(messages);
+    const chatRef = ref(rtdb, `article_chats/${articleId}`);
+    const listener = onValue(chatRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const messages = Object.values(snapshot.val()).sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        callback(messages);
+      } else {
+        callback([]);
+      }
     });
+    return () => off(chatRef, 'value', listener);
   },
 
   // Support Chat
   async sendSupportMessage(message: SupportMessage): Promise<void> {
     if (isPlaceholder) return;
-    try {
-      await setDoc(doc(db, `support_chats/${message.userId}/messages`, message.id), message);
-    } catch (e) {
-      handleFirestoreError(e, 'create', `support_chats/${message.userId}/messages/${message.id}`);
-    }
+    await set(ref(rtdb, `support_chats/${message.userId}/messages/${message.id}`), message);
   },
 
   subscribeToSupportMessages(userId: string, callback: (messages: SupportMessage[]) => void) {
     if (isPlaceholder) return () => {};
-    const q = query(
-      collection(db, `support_chats/${userId}/messages`),
-      orderBy('date', 'asc')
-    );
-    return onSnapshot(q, (snapshot) => {
-      const messages = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as SupportMessage));
-      callback(messages);
+    const supportRef = ref(rtdb, `support_chats/${userId}/messages`);
+    const listener = onValue(supportRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const messages = Object.values(snapshot.val()).sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime()) as SupportMessage[];
+        callback(messages);
+      } else {
+        callback([]);
+      }
     });
+    return () => off(supportRef, 'value', listener);
   },
 
   async getAllSupportChats(): Promise<string[]> {
     if (isPlaceholder) return [];
-    try {
-      const snapshot = await getDocs(collection(db, 'support_chats'));
-      return snapshot.docs.map(doc => doc.id);
-    } catch (e) {
-      handleFirestoreError(e, 'list', 'support_chats');
-      return [];
+    const snapshot = await get(ref(rtdb, 'support_chats'));
+    if (snapshot.exists()) {
+      return Object.keys(snapshot.val());
     }
+    return [];
   },
 
-  // Polls
+  // Admin Polls
   async getPolls(): Promise<Poll[]> {
     if (isPlaceholder) return [];
-    try {
-      const q = query(collection(db, 'polls'), orderBy('startDate', 'desc'));
-      const snapshot = await getDocs(q);
-      return snapshot.docs.map(doc => ({ ...(doc.data() as Poll), id: doc.id }));
-    } catch (e) {
-      // If collection doesn't exist or other error
-      return [];
+    const snapshot = await get(ref(rtdb, 'polls'));
+    if (snapshot.exists()) {
+        return Object.values(snapshot.val()).sort((a: any, b: any) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime()) as Poll[];
     }
+    return [];
   },
 
   async savePoll(poll: Poll): Promise<void> {
     if (isPlaceholder) return;
-    try {
-      await setDoc(doc(db, 'polls', poll.id), poll);
-    } catch (e) {
-      handleFirestoreError(e, 'write', `polls/${poll.id}`);
-    }
+    await set(ref(rtdb, `polls/${poll.id}`), poll);
   },
 
   async deletePoll(pollId: string): Promise<void> {
     if (isPlaceholder) return;
-    try {
-      await deleteDoc(doc(db, 'polls', pollId));
-    } catch (e) {
-      handleFirestoreError(e, 'delete', `polls/${pollId}`);
-    }
+    await remove(ref(rtdb, `polls/${pollId}`));
   },
 
   async voteInPoll(pollId: string, optionId: string): Promise<void> {
     if (isPlaceholder) return;
-    try {
-      const pollRef = doc(db, 'polls', pollId);
-      const pollDoc = await getDoc(pollRef);
-      if (pollDoc.exists()) {
-        const poll = pollDoc.data() as Poll;
-        const updatedOptions = poll.options.map(opt => 
-          opt.id === optionId ? { ...opt, votes: opt.votes + 1 } : opt
-        );
-        await updateDoc(pollRef, { options: updatedOptions });
-      }
-    } catch (e) {
-      handleFirestoreError(e, 'update', `polls/${pollId}`);
-    }
+    const pollRef = ref(rtdb, `polls/${pollId}/options`);
+    const snapshot = await get(pollRef);
+    if (!snapshot.exists()) return;
+
+    const options = snapshot.val() as any[];
+    const updatedOptions = options.map(opt => 
+      opt.id === optionId ? { ...opt, votes: (opt.votes || 0) + 1 } : opt
+    );
+    await set(pollRef, updatedOptions);
   },
 
   subscribeToAllSupportMessages(callback: (userId: string, messages: SupportMessage[]) => void) {
     if (isPlaceholder) return () => {};
-    // Use collection group for all messages across all user chats
-    const q = query(collectionGroup(db, 'messages'), orderBy('date', 'asc'));
-    return onSnapshot(q, (snapshot) => {
-      const groupedMessages: Record<string, SupportMessage[]> = {};
-      snapshot.docs.forEach(doc => {
-        const data = doc.data() as any;
-        const msg = { ...data, id: doc.id } as SupportMessage;
-        if (!groupedMessages[msg.userId]) groupedMessages[msg.userId] = [];
-        groupedMessages[msg.userId].push(msg);
-      });
-      Object.entries(groupedMessages).forEach(([userId, msgs]) => {
-        callback(userId, msgs);
-      });
+    const supportRef = ref(rtdb, 'support_chats');
+    const listener = onValue(supportRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const chats = snapshot.val();
+        Object.entries(chats).forEach(([userId, data]: [string, any]) => {
+          if (data.messages) {
+            const messages = Object.values(data.messages).sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime()) as SupportMessage[];
+            callback(userId, messages);
+          }
+        });
+      }
     });
+    return () => off(supportRef, 'value', listener);
   },
 
   async getAdminStats(): Promise<any> {
     if (isPlaceholder) return null;
     try {
-      const [articles, subs, comments] = await Promise.all([
-        getDocs(collection(db, 'articles')),
-        getDocs(collection(db, 'subscribers')),
-        getDocs(collection(db, 'comments'))
+      const [artSnap, subSnap, commSnap] = await Promise.all([
+        get(ref(rtdb, 'articles')),
+        get(ref(rtdb, 'subscribers')),
+        get(ref(rtdb, 'comments'))
       ]);
       
-      const totalViews = articles.docs.reduce((sum, doc) => sum + (doc.data().views || 0), 0);
+      const articles = artSnap.val() ? Object.values(artSnap.val()) : [];
+      const subs = subSnap.val() ? Object.values(subSnap.val()) : [];
+      const comments = commSnap.val() ? Object.values(commSnap.val()) : [];
+
+      const totalViews = articles.reduce((sum: number, art: any) => sum + (art.views || 0), 0);
       const categoryStats: Record<string, number> = {};
-      articles.docs.forEach(doc => {
-        const cat = doc.data().category;
+      articles.forEach((art: any) => {
+        const cat = art.category;
         categoryStats[cat] = (categoryStats[cat] || 0) + 1;
       });
 
       return {
-        totalArticles: articles.size,
-        totalSubscribers: subs.size,
-        totalComments: comments.size,
+        totalArticles: articles.length,
+        totalSubscribers: subs.length,
+        totalComments: comments.length,
         totalViews,
         categoryStats
       };
     } catch (e) {
-       handleFirestoreError(e, 'list', 'stats');
        return null;
     }
   }
 };
+
+// Aliases for compatibility
+export const FirestoreService = DatabaseService;
 
 // --- Auth Utilities ---
 export const signInWithGoogle = async () => {
@@ -653,16 +689,6 @@ export const setupRecaptcha = (containerId: string) => {
   });
 };
 
-export const sendPhoneOtp = async (phoneNumber: string, appVerifier: any) => {
-  try {
-    const confirmationResult = await signInWithPhoneNumber(auth, phoneNumber, appVerifier);
-    return confirmationResult;
-  } catch (error) {
-    console.error("Error sending OTP:", error);
-    throw error;
-  }
-};
-
 export const handleUserLogout = async () => {
   try {
     await signOut(auth);
@@ -679,9 +705,20 @@ export const resetPassword = async (email: string) => {
     throw error;
   }
 };
+
+export const sendPhoneOtp = async (phoneNumber: string, appVerifier: any) => {
+  try {
+    const confirmationResult = await signInWithPhoneNumber(auth, phoneNumber, appVerifier);
+    return confirmationResult as ConfirmationResult;
+  } catch (error) {
+    console.error("Error sending OTP:", error);
+    throw error;
+  }
+};
+
 // --- Error Handlers ---
 
-export interface FirestoreErrorInfo {
+export interface DatabaseErrorInfo {
   error: string;
   operationType: 'create' | 'update' | 'delete' | 'list' | 'get' | 'write';
   path: string | null;
@@ -694,10 +731,10 @@ export interface FirestoreErrorInfo {
   }
 }
 
-export function handleFirestoreError(error: any, operationType: FirestoreErrorInfo['operationType'], path: string | null = null): never {
-  if (error.code === 'permission-denied' || (error.message && error.message.includes('insufficient permissions'))) {
+export function handleDatabaseError(error: any, operationType: DatabaseErrorInfo['operationType'], path: string | null = null): never {
+  if (error.code === 'PERMISSION_DENIED' || (error.message && error.message.includes('permission_denied'))) {
     const user = auth.currentUser;
-    const errorInfo: FirestoreErrorInfo = {
+    const errorInfo: DatabaseErrorInfo = {
       error: error.message || 'Missing or insufficient permissions',
       operationType,
       path,
@@ -717,3 +754,6 @@ export function handleFirestoreError(error: any, operationType: FirestoreErrorIn
   }
   throw error;
 }
+
+// Keep the old handler name for compatibility if needed
+export const handleFirestoreError = handleDatabaseError;
