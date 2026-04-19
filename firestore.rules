@@ -89,9 +89,10 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
-    match /settings/{docId} {
-      allow get: if true;
-      allow write: if isAdmin();
+    // Règle spécifique pour le document 'settings/global'
+    // Permet la lecture, la création et la mise à jour si l'utilisateur est authentifié.
+    match /settings/global {
+      allow read, create, update: if request.auth != null;
     }
 
     match /comments/{commentId} {
