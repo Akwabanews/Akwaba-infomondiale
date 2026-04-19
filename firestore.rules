@@ -11,7 +11,7 @@ service cloud.firestore {
     function isSignedIn() { return request.auth != null; }
     function isVerified() { return isSignedIn() && request.auth.token.email_verified == true; }
     // User akwabanewsinfo@gmail.com is the bootstrapped admin
-    function isAdmin() { return isVerified() && (request.auth.token.email == 'akwabanewsinfo@gmail.com'); }
+    function isAdmin() { return isSignedIn() && (request.auth.token.email == 'akwabanewsinfo@gmail.com'); }
     function incoming() { return request.resource.data; }
     function existing() { return resource.data; }
     function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
