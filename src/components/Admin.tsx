@@ -71,7 +71,7 @@ export const AdminLogin = ({ onLogin }: { onLogin: () => void }) => {
           </div>
           <div>
             <h2 className="text-2xl font-black">Espace Admin</h2>
-            <p className="text-slate-400 text-sm mt-1">Authentification via compte Google autorisé uniquement.</p>
+            <p className="text-slate-400 text-sm mt-1">Authentification sécurisée par lien magique.</p>
           </div>
         </div>
         
@@ -80,8 +80,8 @@ export const AdminLogin = ({ onLogin }: { onLogin: () => void }) => {
             onClick={onLogin}
             className="w-full bg-slate-900 text-white font-black py-4 rounded-2xl hover:bg-slate-800 transition-all shadow-lg flex items-center justify-center gap-3"
           >
-            <LogIn size={20} className="text-primary" />
-            Se connecter avec Google
+            <Mail size={20} className="text-primary" />
+            Recevoir le lien d'accès
           </button>
         </div>
         
