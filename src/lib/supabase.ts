@@ -552,12 +552,7 @@ export const loginWithMagicLink = async (email: string) => {
 };
 
 export const signInWithGoogle = async () => {
-  const { data, error } = await supabase.auth.signInWithOAuth({
-    provider: 'google',
-    options: { redirectTo: window.location.origin }
-  });
-  if (error) throw error;
-  return null; // OAuth is redirect-based
+  throw new Error("Google login is disabled. Use Email Magic Link instead.");
 };
 
 export const loginWithEmail = async (email: string, pass: string) => {

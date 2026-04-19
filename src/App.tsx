@@ -2209,43 +2209,13 @@ export default function App() {
 
   const handleAdminLogin = async () => {
     try {
-      const user = await signInWithGoogle();
-      
-      if (!user) {
-        console.log("Login user object is null");
-        return;
-      }
-
-      // Fallback: Si user.email est null, on cherche dans les données du fournisseur
-      const userEmail = user.email || (user.providerData && user.providerData[0]?.email);
-
-      if (!userEmail) {
-        alert("Google n'a pas transmis votre adresse email. Veuillez réessayer.");
-        await auth.signOut();
-        return;
-      }
-
-      console.log("Tentative de connexion avec :", userEmail);
-
-      if (userEmail === 'akwabanewsinfo@gmail.com') {
-        setIsAdminAuthenticated(true);
-        setCurrentView('admin');
-        setActiveNotification("Connexion réussie !");
-      } else {
-        alert(`Accès refusé : L'email ${userEmail} n'est pas autorisé.`);
-        await auth.signOut();
-      }
+      const adminEmail = 'akwabanewsinfo@gmail.com';
+      setActiveNotification({ message: "Envoi du lien magique pour l'admin...", type: 'info' });
+      await loginWithMagicLink(adminEmail);
+      setActiveNotification({ message: "Lien magique envoyé ! Vérifiez l'e-mail " + adminEmail, type: 'success' });
     } catch (error: any) {
-      console.error("Login Error:", error);
-      if (error.code === 'auth/popup-closed-by-user') return;
-      
-      if (error.code === 'auth/unauthorized-domain') {
-        alert("Erreur Firebase : Ce domaine n'est pas autorisé. \n\nAjoutez ce domaine dans la console Firebase > Authentication > Paramètres.");
-      } else if (error.code === 'auth/popup-blocked') {
-        alert("Le navigateur a bloqué la fenêtre de connexion.");
-      } else {
-        alert("Erreur lors de la connexion : " + (error.message || "Erreur inconnue"));
-      }
+      console.error("Admin Login Error:", error);
+      alert("Erreur lors de l'envoi du lien admin : " + (error.message || "Erreur inconnue"));
     }
   };
 

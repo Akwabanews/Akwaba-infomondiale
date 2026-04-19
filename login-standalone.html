@@ -42,16 +42,6 @@
             </button>
         </form>
 
-        <div class="relative my-8">
-            <div class="absolute inset-0 flex items-center"><div class="w-full border-t border-slate-100"></div></div>
-            <div class="relative flex justify-center text-[10px] uppercase font-bold text-slate-400"><span class="px-2 bg-white">Ou</span></div>
-        </div>
-
-        <button id="googleBtn" class="w-full py-4 bg-white border-2 border-slate-100 rounded-2xl font-bold text-sm tracking-tight transition-all flex items-center justify-center gap-3 hover:border-slate-300">
-            <img src="https://www.google.com/favicon.ico" class="w-5 h-5">
-            Compte Google
-        </button>
-
         <div id="message" class="mt-6 hidden p-4 rounded-2xl text-sm font-bold text-center"></div>
 
         <p class="mt-8 text-center text-xs text-slate-400 font-medium leading-relaxed">
@@ -69,27 +59,10 @@
         const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
         const loginForm = document.getElementById('loginForm');
-        const googleBtn = document.getElementById('googleBtn');
         const submitBtn = document.getElementById('submitBtn');
         const btnText = document.getElementById('btnText');
         const loader = document.getElementById('loader');
         const messageDiv = document.getElementById('message');
-
-        googleBtn.addEventListener('click', async () => {
-            setError(null);
-            try {
-                const { error } = await supabase.auth.signInWithOAuth({
-                    provider: 'google',
-                    options: {
-                        redirectTo: window.location.origin,
-                    }
-                });
-                if (error) throw error;
-            } catch (err) {
-                console.error("Erreur Google Login:", err);
-                setError(err.message || "Erreur avec Google Login.");
-            }
-        });
 
         loginForm.addEventListener('submit', async (e) => {
             // Empêche le rechargement de la page
