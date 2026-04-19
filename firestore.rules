@@ -2,146 +2,18 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // --- 0. GLOBAL SAFETY NET ---
+    // Règle spécifique pour le document 'settings/global'
+    // Permet la lecture à tous, mais l'écriture SEULEMENT à l'admin vérifié
+    match /settings/global {
+      allow read: if true;
+      allow write: if request.auth != null && 
+                     request.auth.token.email == 'akwabanewsinfo@gmail.com' && 
+                     request.auth.token.email_verified == true;
+    }
+
+    // Règle générale qui refuse toutes les opérations pour tous les autres documents
     match /{document=**} {
       allow read, write: if false;
-    }
-
-    // --- HELPER PRIMITIVES (Phase 3) ---
-    function isSignedIn() { return request.auth != null; }
-    function isVerified() { return isSignedIn() && request.auth.token.email_verified == true; }
-    // User akwabanewsinfo@gmail.com is the bootstrapped admin
-    function isAdmin() { return isSignedIn() && (request.auth.token.email == 'akwabanewsinfo@gmail.com'); }
-    function incoming() { return request.resource.data; }
-    function existing() { return resource.data; }
-    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
-    function isValidId(id) { return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
-
-    // --- VALIDATION HELPERS (Phase 4) ---
-    
-    function isValidArticle(data) {
-      return data.keys().hasAll(['id', 'slug', 'title', 'date', 'category', 'author', 'content']) &&
-             data.keys().size() >= 7 && data.keys().size() <= 25 &&
-             data.id is string && data.id.size() <= 128 &&
-             data.slug is string && data.slug.size() <= 256 &&
-             data.title is string && data.title.size() <= 500 &&
-             data.category is string && data.category.size() <= 100 &&
-             data.author is string && data.author.size() <= 128 &&
-             data.content is string && data.content.size() <= 100000;
-    }
-
-    function isValidUser(data) {
-      return data.keys().hasAll(['uid', 'email']) &&
-             data.keys().size() >= 2 && data.keys().size() <= 15 &&
-             data.uid == request.auth.uid &&
-             data.email == request.auth.token.email &&
-             (!('points' in data) || data.points is number) &&
-             (!('isAdmin' in data));
-    }
-
-    function isValidNotification(data) {
-      return data.keys().hasAll(['id', 'title', 'message', 'date', 'read', 'userId']) &&
-             data.keys().size() >= 6 && data.keys().size() <= 10 &&
-             data.id is string && data.id.size() <= 128 &&
-             data.title is string && data.title.size() <= 200 &&
-             data.message is string && data.message.size() <= 2000 &&
-             data.read is bool;
-    }
-
-    // --- COLLECTIONS (Fortress Rules) ---
-
-    // Articles: Public Read, Admin Write
-    match /articles/{articleId} {
-      allow get, list: if true;
-      allow create: if isAdmin() && isValidId(articleId) && isValidArticle(incoming()) && incoming().date == request.time;
-      allow update: if (
-        (isAdmin() && isValidArticle(incoming()) && incoming().date == existing().date) ||
-        (isSignedIn() && incoming().diff(existing()).affectedKeys().hasOnly(['views', 'likes']))
-      );
-      allow delete: if isAdmin();
-    }
-
-    // User Profiles: Private with PII Isolation
-    match /users/{userId} {
-      allow get: if isOwner(userId) || isAdmin();
-      allow list: if isAdmin(); // Forbidden blanket reads
-      allow create: if isVerified() && isValidId(userId) && isValidUser(incoming());
-      allow update: if isOwner(userId) && isValidUser(incoming()) && (
-        incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'followedCategories', 'bookmarkedArticles', 'followedAuthors', 'points', 'badges']) &&
-        incoming().uid == existing().uid &&
-        incoming().email == existing().email
-      );
-      allow delete: if isOwner(userId) || isAdmin();
-    }
-
-    // Notifications: Relational Access
-    match /notifications/{notificationId} {
-      allow get: if isSignedIn() && (existing().userId == request.auth.uid || existing().userId == 'global' || isAdmin());
-      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || resource.data.userId == 'global' || isAdmin());
-      allow create: if isAdmin() && isValidId(notificationId) && isValidNotification(incoming());
-      allow update: if (isOwner(existing().userId) && incoming().diff(existing()).affectedKeys().hasOnly(['read'])) || isAdmin();
-      allow delete: if isAdmin();
-    }
-
-    // Events, Settings, etc.
-    match /events/{eventId} {
-      allow get, list: if true;
-      allow write: if isAdmin();
-    }
-
-    // Règle spécifique pour le document 'settings/global'
-    // Permet la lecture, la création et la mise à jour si l'utilisateur est authentifié.
-    match /settings/global {
-      allow read, create, update: if request.auth != null;
-    }
-
-    match /comments/{commentId} {
-      allow read: if true;
-      allow create: if isVerified() && incoming().userId == request.auth.uid && incoming().date == request.time;
-      allow update: if isAdmin() || (isOwner(existing().userId) && incoming().diff(existing()).affectedKeys().hasOnly(['content', 'updatedAt']) && incoming().updatedAt == request.time);
-      allow delete: if isAdmin() || isOwner(existing().userId);
-    }
-
-    match /support_chats/{userId}/messages/{msgId} {
-      allow read: if isOwner(userId) || isAdmin();
-      allow create: if (isOwner(userId) || isAdmin()) && isValidId(msgId) && incoming().date == request.time;
-      allow delete: if isAdmin();
-    }
-
-    // Interaction Collections
-    match /subscribers/{subId} {
-      allow create: if true;
-      allow read, update, delete: if isAdmin();
-    }
-
-    match /classifieds/{classifiedId} {
-      allow read: if true;
-      allow create: if isVerified() && incoming().userId == request.auth.uid && isValidId(classifiedId);
-      allow update: if (isAdmin() || isOwner(existing().userId)) && 
-                      incoming().diff(existing()).affectedKeys().hasOnly(['title', 'description', 'price', 'category', 'location', 'imageUrl', 'status', 'updatedAt']) &&
-                      incoming().updatedAt == request.time;
-      allow delete: if isAdmin() || isOwner(existing().userId);
-    }
-
-    match /polls/{pollId} {
-      allow read: if true;
-      allow update: if isVerified() && incoming().diff(existing()).affectedKeys().hasOnly(['votes', 'totalVotes']); 
-      allow create, delete: if isAdmin();
-    }
-
-    match /blocked_users/{userId} {
-      allow read: if true;
-      allow write: if isAdmin();
-    }
-
-    match /media/{mediaId} {
-      allow read: if true;
-      allow write: if isAdmin();
-    }
-
-    match /live_blogs/{blogId} {
-      allow read: if true;
-      allow write: if isAdmin();
     }
   }
 }
