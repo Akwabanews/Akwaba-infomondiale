@@ -69,7 +69,7 @@ import { AuthModal } from './components/AuthModal';
 import { AuthorProfile } from './components/AuthorProfile';
 import { 
   FirestoreService, 
-  signInWithGoogle, 
+  login, 
   loginWithEmail, 
   registerWithEmail, 
   setupRecaptcha, 
