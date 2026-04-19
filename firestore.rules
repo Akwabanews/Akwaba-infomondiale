@@ -91,7 +91,7 @@ service cloud.firestore {
 
     match /settings/{docId} {
       allow get: if true;
-      allow write: if isSignedIn();
+      allow write: if isAdmin();
     }
 
     match /comments/{commentId} {

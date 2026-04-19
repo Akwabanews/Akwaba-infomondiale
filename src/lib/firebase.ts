@@ -166,7 +166,7 @@ export const FirestoreService = {
     try {
       await setDoc(doc(db, 'settings', 'global'), settings);
     } catch (e) {
-      handleFirestoreError(e, 'create', 'settings/global');
+      handleFirestoreError(e, 'write', 'settings/global');
     }
   },
 
