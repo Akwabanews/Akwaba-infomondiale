@@ -2309,9 +2309,16 @@ export default function App() {
       setSiteSettings(settings);
       setActiveNotification({ message: "Configuration mise à jour avec succès !", type: 'success' });
       setTimeout(() => setActiveNotification(null), 5000);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error saving settings:", error);
-      alert("Erreur fatale lors de la sauvegarde des paramètres. Vérifiez votre connexion.");
+      let details = "";
+      try {
+        const info = JSON.parse(error.message);
+        details = `\n\nDétails : ${info.error}\nOpération : ${info.operationType}\nChemin : ${info.path}`;
+      } catch {
+        details = `\n\nErreur : ${error.message || "Inconnue"}`;
+      }
+      alert("Erreur lors de la sauvegarde des paramètres." + details + "\n\nVeuillez vérifier que vous avez créé la base de données Firestore dans la console Firebase.");
     }
   };
 

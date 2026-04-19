@@ -136,7 +136,11 @@ export const FirestoreService = {
       localStorage.setItem('akwaba_events', JSON.stringify(events));
       return;
     }
-    await setDoc(doc(db, 'events', event.id), event);
+    try {
+      await setDoc(doc(db, 'events', event.id), event);
+    } catch (e) {
+      handleFirestoreError(e, 'create', `events/${event.id}`);
+    }
   },
 
   async deleteEvent(id: string): Promise<void> {
@@ -159,7 +163,11 @@ export const FirestoreService = {
       localStorage.setItem('akwaba_site_settings', JSON.stringify(settings));
       return;
     }
-    await setDoc(doc(db, 'settings', 'global'), settings);
+    try {
+      await setDoc(doc(db, 'settings', 'global'), settings);
+    } catch (e) {
+      handleFirestoreError(e, 'create', 'settings/global');
+    }
   },
 
   // Comments management
