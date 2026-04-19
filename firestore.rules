@@ -2,13 +2,11 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // Règle spécifique pour le document 'settings/global'
-    // Permet la lecture à tous, mais l'écriture SEULEMENT à l'admin vérifié
+    // Permet la lecture à tous, mais l'écriture SEULEMENT à l'admin akwabanewsinfo@gmail.com
     match /settings/global {
       allow read: if true;
       allow write: if request.auth != null && 
-                     request.auth.token.email == 'akwabanewsinfo@gmail.com' && 
-                     request.auth.token.email_verified == true;
+                     request.auth.token.email == 'akwabanewsinfo@gmail.com';
     }
 
     // Règle générale qui refuse toutes les opérations pour tous les autres documents

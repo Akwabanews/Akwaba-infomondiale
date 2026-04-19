@@ -2312,13 +2312,17 @@ export default function App() {
     } catch (error: any) {
       console.error("Error saving settings:", error);
       let details = "";
+      let authDebug = "";
       try {
         const info = JSON.parse(error.message);
         details = `\n\nDétails : ${info.error}\nOpération : ${info.operationType}\nChemin : ${info.path}`;
+        if (info.authInfo) {
+          authDebug = `\n\nIdentité détectée :\n- Email : ${info.authInfo.email || "Non connecté"}\n- ID : ${info.authInfo.userId}`;
+        }
       } catch {
         details = `\n\nErreur : ${error.message || "Inconnue"}`;
       }
-      alert("Erreur lors de la sauvegarde des paramètres." + details + "\n\nVeuillez vérifier que vous avez créé la base de données Firestore dans la console Firebase.");
+      alert("Erreur lors de la sauvegarde des paramètres." + details + authDebug + "\n\n1. Vérifiez que vous êtes connecté avec akwabanewsinfo@gmail.com\n2. Vérifiez que la base Firestore est active sur votre console.");
     }
   };
 
