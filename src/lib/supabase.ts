@@ -540,7 +540,7 @@ export const FirestoreService = SupabaseService;
 
 // --- Auth Utilities ---
 
-export const loginWithMagicLink = async (email: string) => {
+export const login = async (email: string) => {
   const { data, error } = await supabase.auth.signInWithOtp({
     email,
     options: {
@@ -551,12 +551,8 @@ export const loginWithMagicLink = async (email: string) => {
   return data;
 };
 
-export const signInWithGoogle = async () => {
-  throw new Error("Google login is disabled. Use Email Magic Link instead.");
-};
-
 export const loginWithEmail = async (email: string, pass: string) => {
-  if (!pass) return loginWithMagicLink(email);
+  if (!pass) return login(email);
   const { data, error } = await supabase.auth.signInWithPassword({ email, password: pass });
   if (error) throw error;
   return data.user;

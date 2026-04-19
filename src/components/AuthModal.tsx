@@ -17,10 +17,10 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
+  login,
   loginWithEmail, 
   registerWithEmail, 
-  resetPassword,
-  signInWithGoogle 
+  resetPassword
 } from '../lib/firebase';
 import { cn } from '../lib/utils';
 
@@ -94,7 +94,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
   };
 
   const handleGoogleSignIn = async () => {
-    setError("La connexion Google est désactivée. Utilisez votre e-mail.");
+    setError("La connexion par Google n'est pas prise en charge. Veuillez utiliser votre e-mail.");
   };
 
   if (!isOpen) return null;

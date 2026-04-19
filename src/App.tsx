@@ -2211,7 +2211,7 @@ export default function App() {
     try {
       const adminEmail = 'akwabanewsinfo@gmail.com';
       setActiveNotification({ message: "Envoi du lien magique pour l'admin...", type: 'info' });
-      await loginWithMagicLink(adminEmail);
+      await login(adminEmail);
       setActiveNotification({ message: "Lien magique envoyé ! Vérifiez l'e-mail " + adminEmail, type: 'success' });
     } catch (error: any) {
       console.error("Admin Login Error:", error);

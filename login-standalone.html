@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Connexion Supabase - Akwaba Info</title>
-    <!-- Importation de Supabase v2 via CDN -->
+    <title>Connexion OTP - Akwaba Info</title>
+    <!-- Supabase v2 via CDN -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
@@ -17,7 +17,7 @@
     <div class="bg-white p-8 rounded-[2rem] shadow-2xl w-full max-w-md">
         <div class="text-center mb-8">
             <h1 class="text-3xl font-black text-slate-900 uppercase tracking-tight mb-2">Akwaba Info</h1>
-            <p class="text-slate-500 font-medium">Connexion par Lien Magique (Email OTP)</p>
+            <p class="text-slate-500 font-medium">Connexion par Email OTP uniquement</p>
         </div>
 
         <form id="loginForm" class="space-y-6">
@@ -64,9 +64,20 @@
         const loader = document.getElementById('loader');
         const messageDiv = document.getElementById('message');
 
+        // Fonction login demandée
+        async function login(email) {
+            const { data, error } = await supabase.auth.signInWithOtp({
+                email: email,
+                options: {
+                    emailRedirectTo: window.location.origin,
+                }
+            });
+            if (error) throw error;
+            return data;
+        }
+
         loginForm.addEventListener('submit', async (e) => {
-            // Empêche le rechargement de la page
-            e.preventDefault();
+            e.preventDefault(); // ✅ Pas de recharge
             
             const email = document.getElementById('email').value;
 
@@ -75,18 +86,10 @@
             setLoading(true);
 
             try {
-                // Utilisation de Magic Link (signInWithOtp)
-                const { error } = await supabase.auth.signInWithOtp({
-                    email: email,
-                    options: {
-                        // URL de redirection après clic sur le lien (adapter pour Vercel)
-                        emailRedirectTo: window.location.origin,
-                    }
-                });
+                // Appel de la fonction login existante
+                await login(email);
 
-                if (error) throw error;
-
-                setSuccess("Vérifiez votre boîte mail ! Un lien magique vous a été envoyé.");
+                setSuccess("Vérifiez votre boîte mail ! Un lien OTP vous a été envoyé.");
                 loginForm.reset();
 
             } catch (err) {
