@@ -60,14 +60,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
 
     try {
       if (mode === 'login') {
-        const user = await loginWithEmail(email, password);
-        onSuccess?.(user);
-        onClose();
+        if (!password) {
+          // Magic Link flow
+          await loginWithEmail(email, '');
+          setSuccessMessage("Lien magique envoyé ! Vérifiez votre boîte mail.");
+        } else {
+          const user = await loginWithEmail(email, password);
+          onSuccess?.(user);
+          onClose();
+        }
       } else if (mode === 'register') {
         if (!name) throw new Error("Veuillez entrer votre nom complet.");
         const user = await registerWithEmail(email, password, name);
-        onSuccess?.(user);
-        onClose();
+        setSuccessMessage("Compte créé ! Un email de confirmation a peut-être été envoyé.");
+        if (user) {
+          onSuccess?.(user);
+          onClose();
+        }
       } else if (mode === 'forgot-password') {
         await resetPassword(email);
         setSuccessMessage("Un email de réinitialisation a été envoyé à " + email);
@@ -75,12 +84,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
       }
     } catch (err: any) {
       console.error("Auth Error:", err);
-      let msg = "Une erreur est survenue. Veuillez réessayer.";
-      if (err.code === 'auth/user-not-found') msg = "Aucun compte trouvé avec cet email.";
-      if (err.code === 'auth/wrong-password') msg = "Mot de passe incorrect.";
-      if (err.code === 'auth/email-already-in-use') msg = "Cet email est déjà utilisé par un autre compte.";
-      if (err.code === 'auth/weak-password') msg = "Le mot de passe est trop court.";
-      if (err.code === 'auth/invalid-email') msg = "Adresse email invalide.";
+      let msg = err.message || "Une erreur est survenue. Veuillez réessayer.";
+      if (err.message?.includes('Email not confirmed')) msg = "Veuillez confirmer votre e-mail avant de vous connecter.";
+      if (err.message?.includes('Invalid login credentials')) msg = "Email ou mot de passe incorrect.";
       setError(msg);
     } finally {
       setIsLoading(false);
@@ -95,9 +101,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
       onSuccess?.(user);
       onClose();
     } catch (err: any) {
-      if (err.code !== 'auth/popup-closed-by-user') {
-        setError("Erreur avec la connexion Google. Veuillez réessayer.");
-      }
+      console.error("Google Auth Error:", err);
+      setError("Erreur avec la connexion Google. Veuillez réessayer.");
     } finally {
       setIsLoading(false);
     }

@@ -540,6 +540,17 @@ export const FirestoreService = SupabaseService;
 
 // --- Auth Utilities ---
 
+export const loginWithMagicLink = async (email: string) => {
+  const { data, error } = await supabase.auth.signInWithOtp({
+    email,
+    options: {
+      emailRedirectTo: window.location.origin,
+    }
+  });
+  if (error) throw error;
+  return data;
+};
+
 export const signInWithGoogle = async () => {
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
@@ -550,6 +561,7 @@ export const signInWithGoogle = async () => {
 };
 
 export const loginWithEmail = async (email: string, pass: string) => {
+  if (!pass) return loginWithMagicLink(email);
   const { data, error } = await supabase.auth.signInWithPassword({ email, password: pass });
   if (error) throw error;
   return data.user;
