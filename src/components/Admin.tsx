@@ -55,7 +55,7 @@ import { cn } from '../lib/utils';
 import ReactMarkdown from 'react-markdown';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
-import { FirestoreService } from '../lib/firebase';
+import { SupabaseService } from '../lib/firebase';
 
 export const AdminLogin = ({ onLogin }: { onLogin: () => void }) => {
   return (
@@ -335,7 +335,7 @@ export const AdminDashboard = ({
 
   useEffect(() => {
     if (activeTab === 'support') {
-      const unsub = FirestoreService.subscribeToAllSupportMessages((userId, msgs) => {
+      const unsub = SupabaseService.subscribeToAllSupportMessages((userId, msgs) => {
         setAllSupportMessages(prev => ({ ...prev, [userId]: msgs }));
       });
       return unsub;
@@ -353,7 +353,7 @@ export const AdminDashboard = ({
       isAdmin: true
     };
     setReplyText('');
-    await FirestoreService.sendSupportMessage(adminMsg);
+    await SupabaseService.sendSupportMessage(adminMsg);
   };
 
   const onSendAlert = async () => {
@@ -370,7 +370,7 @@ export const AdminDashboard = ({
           type: alertTopic === 'Urgent' ? 'urgent' : 'article'
       } as any;
       
-      await FirestoreService.sendNotification(notif);
+      await SupabaseService.sendNotification(notif);
       alert(`Alerte envoyée avec succès : ${alertTitle}`);
       setAlertTitle('');
       setAlertMessage('');

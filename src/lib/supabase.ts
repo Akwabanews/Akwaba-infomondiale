@@ -536,8 +536,6 @@ export const SupabaseService = {
   }
 };
 
-export const FirestoreService = SupabaseService;
-
 // --- Auth Utilities ---
 
 export const login = async (email: string) => {
@@ -576,14 +574,29 @@ export const auth: any = {
   async signOut() { await supabase.auth.signOut(); }
 };
 
+const normalizeUser = (user: SupabaseUser | null) => {
+  if (!user) return null;
+  return {
+    ...user,
+    uid: user.id,
+    id: user.id,
+    email: user.email,
+    displayName: user.user_metadata?.display_name || user.user_metadata?.full_name || user.email?.split('@')[0],
+    photoURL: user.user_metadata?.avatar_url || user.user_metadata?.picture || `https://ui-avatars.com/api/?name=${user.email?.split('@')[0]}`
+  };
+};
+
 export const onAuthStateChanged = (authOrCallback: any, callback?: (user: any) => void) => {
   const actualCallback = typeof authOrCallback === 'function' ? authOrCallback : callback;
   if (!actualCallback) return () => {};
+  
   supabase.auth.getSession().then(({ data: { session } }) => {
-    actualCallback(session?.user ? { ...session.user, uid: session.user.id } : null);
+    actualCallback(normalizeUser(session?.user ?? null));
   });
+
   const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-    actualCallback(session?.user ? { ...session.user, uid: session.user.id } : null);
+    actualCallback(normalizeUser(session?.user ?? null));
   });
+  
   return () => subscription.unsubscribe();
 };

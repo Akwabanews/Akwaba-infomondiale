@@ -68,7 +68,7 @@ import { AdminLogin, AdminDashboard, AdminEditor, ExportModal, PollEditor } from
 import { AuthModal } from './components/AuthModal';
 import { AuthorProfile } from './components/AuthorProfile';
 import { 
-  FirestoreService, 
+  SupabaseService, 
   login, 
   loginWithEmail, 
   registerWithEmail, 
@@ -460,7 +460,7 @@ const UserProfileView = ({
         </div>
         <img 
           src={user.photoURL || `https://ui-avatars.com/api/?name=${user.displayName || 'User'}`} 
-          className="w-32 h-32 rounded-full border-4 border-primary shadow-xl object-cover"
+          className="w-32 h-32 rounded-full border-4 border-primary shadow-xl object-cover aspect-square"
         />
         <div className="text-center md:text-left space-y-2">
           <h2 className="text-3xl font-black">{user.displayName || 'Utilisateur Akwaba'}</h2>
@@ -1375,7 +1375,7 @@ const SupportChatWidget = ({ user, isDarkMode }: { user: FirebaseUser | null, is
 
   useEffect(() => {
     if (user && isOpen) {
-      const unsub = FirestoreService.subscribeToSupportMessages(user.uid, (msgs) => {
+      const unsub = SupabaseService.subscribeToSupportMessages(user.uid, (msgs) => {
         setMessages(msgs);
       });
       return unsub;
@@ -1401,7 +1401,7 @@ const SupportChatWidget = ({ user, isDarkMode }: { user: FirebaseUser | null, is
     };
     setText('');
     try {
-      await FirestoreService.sendSupportMessage(msg);
+      await SupabaseService.sendSupportMessage(msg);
     } catch (e) {
       console.error("Support chat error:", e);
     }
@@ -1546,7 +1546,7 @@ const LiveChat = ({ articleId, user }: { articleId: string, user: FirebaseUser |
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const unsub = FirestoreService.subscribeToChat(articleId, (msgs) => {
+    const unsub = SupabaseService.subscribeToChat(articleId, (msgs) => {
       setMessages(msgs);
       setTimeout(() => {
         if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -1566,7 +1566,7 @@ const LiveChat = ({ articleId, user }: { articleId: string, user: FirebaseUser |
       content: newMessage,
       date: new Date().toISOString()
     };
-    await FirestoreService.sendChatMessage(msg);
+    await SupabaseService.sendChatMessage(msg);
     setNewMessage("");
   };
 
@@ -2007,8 +2007,8 @@ export default function App() {
 
   useEffect(() => {
     if (isAdminAuthenticated) {
-      FirestoreService.getPolls().then(setAdminPolls).catch(console.error);
-      FirestoreService.getAdminStats()
+      SupabaseService.getPolls().then(setAdminPolls).catch(console.error);
+      SupabaseService.getAdminStats()
         .then(setAdminStats)
         .catch(err => {
           console.error("Erreur stats:", err);
@@ -2027,7 +2027,7 @@ export default function App() {
 
   useEffect(() => {
     if (currentUser) {
-      const unsubscribe = FirestoreService.subscribeToNotifications(currentUser.uid, (notifs) => {
+      const unsubscribe = SupabaseService.subscribeToNotifications(currentUser.uid, (notifs) => {
         setNotifications(notifs);
         // Show the latest unread notification as a toast if it's new
         const latest = notifs.find(n => !n.read);
@@ -2040,7 +2040,7 @@ export default function App() {
   }, [currentUser]);
 
   const handleMarkNotificationAsRead = async (id: string) => {
-    await FirestoreService.markNotificationAsRead(id);
+    await SupabaseService.markNotificationAsRead(id);
   };
 
   const handlePostClassified = async (data: Partial<Classified>) => {
@@ -2061,7 +2061,7 @@ export default function App() {
     };
     
     try {
-      await FirestoreService.saveClassified(newAd);
+      await SupabaseService.saveClassified(newAd);
       setClassifieds(prev => [newAd, ...prev]);
       setShowClassifiedsModal(false);
       setActiveNotification("Annonce publiée avec succès !");
@@ -2079,7 +2079,7 @@ export default function App() {
     }
     
     try {
-      await FirestoreService.submitVote(activePoll.id, optionId, currentUser.uid);
+      await SupabaseService.submitVote(activePoll.id, optionId, currentUser.uid);
       
       const updatedOptions = activePoll.options.map(opt => 
         opt.id === optionId ? { ...opt, votes: opt.votes + 1 } : opt
@@ -2087,7 +2087,7 @@ export default function App() {
       setActivePoll({ ...activePoll, options: updatedOptions });
       setHasVoted(true);
       setActiveNotification("Vote enregistré ! Merci.");
-      await FirestoreService.awardPoints(currentUser.uid, 10);
+      await SupabaseService.awardPoints(currentUser.uid, 10);
       setUserPoints(prev => prev + 10);
     } catch (error) {
       console.error("Poll vote error:", error);
@@ -2140,7 +2140,7 @@ export default function App() {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
         setCurrentUser(user);
-        const profile = await FirestoreService.getUserProfile(user.uid);
+        const profile = await SupabaseService.getUserProfile(user.uid);
         if (profile) {
           if (profile.likedArticles) setUserLikedArticles(new Set(profile.likedArticles));
           if (profile.bookmarkedArticles) setUserBookmarkedArticles(new Set(profile.bookmarkedArticles));
@@ -2153,6 +2153,10 @@ export default function App() {
         if (user.email === 'akwabanewsinfo@gmail.com') {
           setIsAdminAuthenticated(true);
           localStorage.setItem('akwaba_is_admin', 'true');
+          // Auto-redirect admin to dashboard if they are on login page
+          if (currentView === 'admin-login') {
+            setCurrentView('admin');
+          }
         } else {
           setIsAdminAuthenticated(false);
           localStorage.setItem('akwaba_is_admin', 'false');
@@ -2169,14 +2173,14 @@ export default function App() {
     const fetchData = async () => {
       try {
         const [cloudArticles, cloudEvents, cloudSettings, cloudComments, cloudSubs, cloudMedia, cloudClassifieds, cloudLiveBlogs] = await Promise.all([
-          FirestoreService.getArticles().catch(() => []),
-          FirestoreService.getEvents().catch(() => []),
-          FirestoreService.getSettings().catch(() => null),
-          FirestoreService.getAllComments().catch(() => []),
-          FirestoreService.getSubscribers().catch(() => []),
-          FirestoreService.getMediaLibrary().catch(() => []),
-          FirestoreService.getClassifieds().catch(() => []),
-          FirestoreService.getLiveBlogs().catch(() => [])
+          SupabaseService.getArticles().catch(() => []),
+          SupabaseService.getEvents().catch(() => []),
+          SupabaseService.getSettings().catch(() => null),
+          SupabaseService.getAllComments().catch(() => []),
+          SupabaseService.getSubscribers().catch(() => []),
+          SupabaseService.getMediaLibrary().catch(() => []),
+          SupabaseService.getClassifieds().catch(() => []),
+          SupabaseService.getLiveBlogs().catch(() => [])
         ]);
         
         if (cloudArticles && cloudArticles.length > 0) setAdminArticles(cloudArticles);
@@ -2222,9 +2226,9 @@ export default function App() {
   const handleSaveArticle = async (article: Partial<Article>) => {
     try {
       const art = article as Article;
-      await FirestoreService.saveArticle(art);
-      if (art.image) FirestoreService.trackMedia(art.image, 'image');
-      if (art.video) FirestoreService.trackMedia(art.video, 'video');
+      await SupabaseService.saveArticle(art);
+      if (art.image) SupabaseService.trackMedia(art.image, 'image');
+      if (art.video) SupabaseService.trackMedia(art.video, 'video');
       
       setAdminArticles(prev => {
         const isNew = !prev.find(a => a.id === art.id);
@@ -2243,7 +2247,7 @@ export default function App() {
   const handleDeleteArticle = async (id: string) => {
     if (confirm('Êtes-vous sûr de vouloir supprimer cet article du Cloud ?')) {
       try {
-        await FirestoreService.deleteArticle(id);
+        await SupabaseService.deleteArticle(id);
         setAdminArticles(prev => prev.filter(a => a.id !== id));
         setActiveNotification({ message: "Article supprimé du Cloud.", type: 'info' });
         setTimeout(() => setActiveNotification(null), 3000);
@@ -2257,9 +2261,9 @@ export default function App() {
   const handleSaveEvent = async (event: Partial<Event>) => {
     try {
       const ev = event as Event;
-      await FirestoreService.saveEvent(ev);
-      if (ev.image) FirestoreService.trackMedia(ev.image, 'image');
-      if (ev.video) FirestoreService.trackMedia(ev.video, 'video');
+      await SupabaseService.saveEvent(ev);
+      if (ev.image) SupabaseService.trackMedia(ev.image, 'image');
+      if (ev.video) SupabaseService.trackMedia(ev.video, 'video');
       
       setAdminEvents(prev => {
         const isNew = !prev.find(e => e.id === ev.id);
@@ -2277,31 +2281,24 @@ export default function App() {
 
   const handleSaveSettings = async (settings: SiteSettings) => {
     try {
-      await FirestoreService.saveSettings(settings);
+      await SupabaseService.saveSettings(settings);
       setSiteSettings(settings);
       setActiveNotification({ message: "Configuration mise à jour avec succès !", type: 'success' });
       setTimeout(() => setActiveNotification(null), 5000);
     } catch (error: any) {
       console.error("Error saving settings:", error);
-      let details = "";
-      let authDebug = "";
-      try {
-        const info = JSON.parse(error.message);
-        details = `\n\nDétails : ${info.error}\nOpération : ${info.operationType}\nChemin : ${info.path}`;
-        if (info.authInfo) {
-          authDebug = `\n\nIdentité détectée :\n- Email : ${info.authInfo.email || "Non connecté"}\n- ID : ${info.authInfo.userId}`;
-        }
-      } catch {
-        details = `\n\nErreur : ${error.message || "Inconnue"}`;
+      let details = error.message || "Erreur inconnue";
+      if (details.includes('settings')) {
+        details = "La table 'settings' est manquante ou inaccessible dans votre base de données Supabase.";
       }
-      alert("Erreur lors de la sauvegarde des paramètres." + details + authDebug + "\n\n1. Vérifiez que vous êtes connecté avec akwabanewsinfo@gmail.com\n2. Vérifiez que la base Firestore est active sur votre console.");
+      alert("Erreur lors de la sauvegarde des paramètres.\n\nDétails : " + details + "\n\n1. Vérifiez que vous êtes connecté avec akwabanewsinfo@gmail.com\n2. Vérifiez que la table 'settings' existe dans votre projet Supabase.");
     }
   };
 
   const handleDeleteComment = async (id: string) => {
     if (confirm('Supprimer ce commentaire de façon permanente ?')) {
       try {
-        await FirestoreService.deleteComment(id);
+        await SupabaseService.deleteComment(id);
         setAllComments(prev => prev.filter(c => c.id !== id));
         setActiveNotification({ message: "Commentaire supprimé.", type: 'info' });
         setTimeout(() => setActiveNotification(null), 3000);
@@ -2315,7 +2312,7 @@ export default function App() {
   const handleDeleteEvent = async (id: string) => {
     if (confirm('Êtes-vous sûr de vouloir supprimer cet événement du Cloud ?')) {
       try {
-        await FirestoreService.deleteEvent(id);
+        await SupabaseService.deleteEvent(id);
         setAdminEvents(prev => prev.filter(e => e.id !== id));
         setActiveNotification({ message: "Événement supprimé.", type: 'info' });
         setTimeout(() => setActiveNotification(null), 3000);
@@ -2346,7 +2343,7 @@ export default function App() {
         date: new Date().toISOString(),
         isAdmin: false
       };
-      await FirestoreService.sendSupportMessage(message);
+      await SupabaseService.sendSupportMessage(message);
       setContactForm({ name: '', email: '', message: '' });
       setActiveNotification("Message envoyé ! Nous vous répondrons par email.");
     } catch (error) {
@@ -2358,7 +2355,7 @@ export default function App() {
   const handleDeleteSubscriber = async (id: string) => {
     if (confirm('Supprimer cet abonné ?')) {
       try {
-        await FirestoreService.deleteSubscriber(id);
+        await SupabaseService.deleteSubscriber(id);
         setSubscribers(subscribers.filter(s => s.id !== id));
         setActiveNotification("Abonné supprimé.");
       } catch (error) {
@@ -2370,7 +2367,7 @@ export default function App() {
   const handleDeleteMediaAsset = async (id: string) => {
     if (confirm('Supprimer ce média ?')) {
       try {
-        await FirestoreService.deleteMediaAsset(id);
+        await SupabaseService.deleteMediaAsset(id);
         setMediaLibrary(mediaLibrary.filter(m => m.id !== id));
         setActiveNotification("Média supprimé.");
       } catch (error) {
@@ -2382,7 +2379,7 @@ export default function App() {
   const handleBlockUser = async (userId: string) => {
     if (confirm('Voulez-vous vraiment bloquer cet utilisateur ?')) {
       try {
-        await FirestoreService.blockUser(userId);
+        await SupabaseService.blockUser(userId);
         setActiveNotification("Utilisateur bloqué.");
       } catch (error) {
         console.error(error);
@@ -2392,7 +2389,7 @@ export default function App() {
 
   const handleSavePoll = async (poll: Poll) => {
     try {
-      await FirestoreService.savePoll(poll);
+      await SupabaseService.savePoll(poll);
       setAdminPolls(prev => {
         const index = prev.findIndex(p => p.id === poll.id);
         if (index >= 0) {
@@ -2413,7 +2410,7 @@ export default function App() {
   const handleDeletePoll = async (id: string) => {
     if (confirm("Voulez-vous vraiment supprimer ce sondage ?")) {
       try {
-        await FirestoreService.deletePoll(id);
+        await SupabaseService.deletePoll(id);
         setAdminPolls(prev => prev.filter(p => p.id !== id));
         setActiveNotification("Sondage supprimé.");
       } catch (error) {
@@ -2443,7 +2440,7 @@ export default function App() {
     const isBookmarked = !userBookmarkedArticles.has(articleId);
     
     try {
-      await FirestoreService.bookmarkArticle(articleId, currentUser.uid, isBookmarked);
+      await SupabaseService.bookmarkArticle(articleId, currentUser.uid, isBookmarked);
       
       setUserBookmarkedArticles(prev => {
         const next = new Set(prev);
@@ -2454,7 +2451,7 @@ export default function App() {
 
     if (isBookmarked) {
       setActiveNotification("Article enregistré dans vos favoris !");
-      await FirestoreService.awardPoints(currentUser.uid, 5);
+      await SupabaseService.awardPoints(currentUser.uid, 5);
       setUserPoints(prev => prev + 5);
     }
     } catch (error) {
@@ -2508,7 +2505,7 @@ export default function App() {
     };
 
     try {
-      await FirestoreService.saveComment(newComment);
+      await SupabaseService.saveComment(newComment);
       
       setArticleComments(prev => {
         const currentComments = [...(prev[articleId] || [])];
@@ -2535,7 +2532,7 @@ export default function App() {
       setReplyingTo(null);
       setActiveNotification("Votre message a été publié !");
       if (currentUser) {
-        await FirestoreService.awardPoints(currentUser.uid, 10);
+        await SupabaseService.awardPoints(currentUser.uid, 10);
         setUserPoints(prev => prev + 10);
       }
     } catch (error) {
@@ -2553,7 +2550,7 @@ export default function App() {
     const isLiked = !userLikedArticles.has(articleId);
     
     try {
-      await FirestoreService.likeArticle(articleId, currentUser.uid, isLiked);
+      await SupabaseService.likeArticle(articleId, currentUser.uid, isLiked);
       
       setUserLikedArticles(prev => {
         const next = new Set(prev);
@@ -2569,7 +2566,7 @@ export default function App() {
 
       if (isLiked) {
         setActiveNotification("Vous avez aimé cet article !");
-        await FirestoreService.awardPoints(currentUser.uid, 5);
+        await SupabaseService.awardPoints(currentUser.uid, 5);
         setUserPoints(prev => prev + 5);
       }
     } catch (error) {
@@ -2598,7 +2595,7 @@ export default function App() {
     const isLiked = !target.likedBy?.includes(currentUser.uid);
     
     try {
-      await FirestoreService.likeComment(commentId, currentUser.uid, isLiked);
+      await SupabaseService.likeComment(commentId, currentUser.uid, isLiked);
       
       setArticleComments(prev => {
         const updateLikes = (comments: Comment[]): Comment[] => {
@@ -2628,7 +2625,7 @@ export default function App() {
       return;
     }
     try {
-      await FirestoreService.reportComment(commentId, currentUser.uid);
+      await SupabaseService.reportComment(commentId, currentUser.uid);
       setActiveNotification("Le commentaire a été signalé à l'administration.");
     } catch (e) {
       console.error(e);
@@ -2642,7 +2639,7 @@ export default function App() {
     }
     const isFollowing = !userFollowedAuthors.has(authorName);
     try {
-      await FirestoreService.followAuthor(authorName, currentUser.uid, isFollowing);
+      await SupabaseService.followAuthor(authorName, currentUser.uid, isFollowing);
       setUserFollowedAuthors(prev => {
         const next = new Set(prev);
         if (isFollowing) next.add(authorName);
@@ -2662,7 +2659,7 @@ export default function App() {
     }
     const isFollowing = !userFollowedCategories.has(category);
     try {
-      await FirestoreService.followCategory(category, currentUser.uid, isFollowing);
+      await SupabaseService.followCategory(category, currentUser.uid, isFollowing);
       setUserFollowedCategories(prev => {
         const next = new Set(prev);
         if (isFollowing) next.add(category);
@@ -2694,7 +2691,7 @@ export default function App() {
     if (!newsletterEmail) return;
     
     try {
-      await FirestoreService.subscribe(newsletterEmail);
+      await SupabaseService.subscribe(newsletterEmail);
       setActiveNotification("Merci ! Vous êtes maintenant inscrit à la newsletter.");
       setNewsletterEmail('');
     } catch (error) {
@@ -2804,7 +2801,7 @@ export default function App() {
 
   const handleAuthSuccess = async (user: FirebaseUser) => {
     try {
-      const isBlocked = await FirestoreService.isUserBlocked(user.uid);
+      const isBlocked = await SupabaseService.isUserBlocked(user.uid);
       if (isBlocked) {
         alert("Votre compte a été suspendu par un administrateur.");
         await auth.signOut();
@@ -2894,15 +2891,15 @@ export default function App() {
     
     // Increment views
     try {
-      await FirestoreService.incrementArticleViews(article.id);
+      await SupabaseService.incrementArticleViews(article.id);
       
       // Award 2 points for reading if logged in
       if (currentUser) {
-        await FirestoreService.awardPoints(currentUser.uid, 2);
+        await SupabaseService.awardPoints(currentUser.uid, 2);
         
         // Add to history
         const updatedHistory = [{ articleId: article.id, date: new Date().toISOString() }, ...(currentUser as any).history || []].slice(0, 50);
-        await FirestoreService.updateUserProfile(currentUser.uid, { 
+        await SupabaseService.updateUserProfile(currentUser.uid, { 
           ...currentUser, 
           history: updatedHistory 
         } as any);
@@ -3039,9 +3036,9 @@ export default function App() {
             return;
           }
           try {
-            await FirestoreService.awardPoints(currentUser.uid, 500, '👑 Membre Premium');
+            await SupabaseService.awardPoints(currentUser.uid, 500, '👑 Membre Premium');
             const updatedUser = { ...currentUser, isPremium: true };
-            await FirestoreService.updateUserProfile(currentUser.uid, updatedUser as any);
+            await SupabaseService.updateUserProfile(currentUser.uid, updatedUser as any);
             setCurrentUser(updatedUser as any);
             setShowPremiumModal(false);
             setActiveNotification("Félicitations ! Bienvenue au club Premium.");
@@ -3235,7 +3232,7 @@ export default function App() {
                 >
                   <img 
                     src={currentUser.photoURL || `https://ui-avatars.com/api/?name=${currentUser.displayName || 'User'}`} 
-                    className="w-12 h-12 rounded-full border-2 border-primary object-cover"
+                    className="w-12 h-12 rounded-full border-2 border-primary object-cover aspect-square"
                     referrerPolicy="no-referrer"
                   />
                   <div className="flex-1">
@@ -3444,7 +3441,7 @@ export default function App() {
                     src={currentUser.photoURL || `https://ui-avatars.com/api/?name=${currentUser.displayName || 'User'}`} 
                     alt="User Profile" 
                     className={cn(
-                      "w-10 h-10 rounded-full border-2 transition-colors object-cover",
+                      "w-10 h-10 rounded-full border-2 transition-colors object-cover aspect-square",
                       currentView === 'profile' ? "border-primary" : "border-primary/20 hover:border-primary"
                     )}
                   />
@@ -4973,7 +4970,7 @@ Dernière mise à jour : Avril 2026
                 onClick={async () => {
                   if (newsletterEmail && newsletterEmail.includes('@')) {
                     try {
-                      await FirestoreService.subscribe(newsletterEmail);
+                      await SupabaseService.subscribe(newsletterEmail);
                       setNewsletterEmail('');
                       setActiveNotification("Inscription réussie ! Merci d'avoir rejoint Akwaba Info.");
                       setTimeout(() => setActiveNotification(null), 3000);
